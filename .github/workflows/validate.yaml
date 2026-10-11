@@ -15,22 +15,22 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: root
       # Cross-repository check: the projects and values repositories are public.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ailves2009/poc-eks-gitops-projects
           ref: master
           path: projects
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ailves2009/poc-eks-gitops-values
           ref: master
           path: values
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
