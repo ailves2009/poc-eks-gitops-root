@@ -1,0 +1,65 @@
+# Infrastructure components of poc-plt-eks: one element = one Application.
+#
+# list generator: the set of components changes only through a pull request to this repo,
+# under platform control. Chart version is pinned here; values live in poc-eks-gitops-values.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: infra-poc-plt-eks
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"] # optional element keys only through `dig`
+  syncPolicy:
+    preserveResourcesOnDeletion: true # removing an element never deletes the component
+  generators:
+    - list:
+        elements:
+          - name: metrics-server
+            namespace: kube-system
+            repoURL: https://kubernetes-sigs.github.io/metrics-server/
+            chart: metrics-server
+            version: 3.14.0
+            # Release name of the previous Terraform-managed helm_release: same selector
+            # labels, so Argo CD adopts the running Deployment instead of replacing it.
+            releaseName: metrics-server
+            # Opt-in auto-sync per element. Convention: infra is synced by hand; metrics-server
+            # is auto so a cluster rebuilt from scratch comes back without a click.
+            automated: "true"
+  template:
+    metadata:
+      name: "infra-poc-plt-eks-{{ .name }}"
+      labels:
+        tier: infra
+    spec:
+      project: infra-poc-plt-eks
+      sources:
+        - repoURL: "{{ .repoURL }}"
+          chart: "{{ .chart }}"
+          targetRevision: "{{ .version }}"
+          helm:
+            releaseName: '{{ dig "releaseName" .name . }}'
+            valueFiles:
+              - "$values/infra/poc-plt-eks/{{ .name }}.yaml"
+        - repoURL: https://github.com/ailves2009/poc-eks-gitops-values.git
+          targetRevision: master
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        syncOptions:
+          - ServerSideApply=true
+  # Adds `automated` only when the element asks for it. The `if` wraps the whole patch, so a
+  # false element yields an empty patch and the template's syncPolicy (syncOptions) stays
+  # intact -- wrapping only `automated:` would render `syncPolicy: null` and wipe it.
+  templatePatch: |
+    {{- if eq (dig "automated" "false" .) "true" }}
+    spec:
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+    {{- end }}

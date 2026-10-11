@@ -1,0 +1,27 @@
+# AppProjects ("who may do what") come from their own repository.
+#
+# Sync wave -1: the root Application creates this before the ApplicationSets (wave 0, 1), so a
+# generated Application never points at a project that does not exist yet. In the reference
+# design this ordering was a manual merge order across three repositories.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: projects
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ailves2009/poc-eks-gitops-projects.git
+    targetRevision: master
+    path: projects
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  # Auto-sync: a merged AppProject change is live in ~3 min, and only that change -- no
+  # "sync pulls in someone else's merged-but-unsynced edit" as with a manually synced settings app.
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

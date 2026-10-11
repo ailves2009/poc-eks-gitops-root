@@ -1,0 +1,51 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+env:
+  KUBECONFORM_VERSION: v0.6.7
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: root
+      # Cross-repository check: the projects and values repositories are public.
+      - uses: actions/checkout@v4
+        with:
+          repository: ailves2009/poc-eks-gitops-projects
+          ref: master
+          path: projects
+      - uses: actions/checkout@v4
+        with:
+          repository: ailves2009/poc-eks-gitops-values
+          ref: master
+          path: values
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools (pinned)
+        run: |
+          pip install pyyaml==6.0.2
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: kubeconform -strict (real Argo CD CRD schemas)
+        run: |
+          kubeconform -strict -summary \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            root/clusters
+
+      - name: Every referenced AppProject exists
+        run: python3 root/scripts/check_projects.py root projects values

@@ -1,0 +1,75 @@
+# Product workloads on poc-plt-eks: one service file in poc-eks-gitops-values = one Application.
+#
+#   workloads/<env>/<app>/<service>.yaml  →  Application <app>-<env>-<service>
+#                                             namespace   <app>-<env>
+#   workloads/<env>/<app>/_env.yaml       →  not an Application: a fixed values slot for all
+#
+# git files generator: a product team adds a service by adding one file to the values repo;
+# this ApplicationSet does not change.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: workloads-poc-plt-eks
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    # Deleting a service file (or the ApplicationSet) removes the Application but keeps the
+    # running workload; removal from the cluster is a deliberate second step.
+    preserveResourcesOnDeletion: true
+  generators:
+    - git:
+        repoURL: https://github.com/ailves2009/poc-eks-gitops-values.git
+        revision: master
+        files:
+          - path: "workloads/*/*/*.yaml"
+          - path: "workloads/*/*/_env.yaml"
+            exclude: true
+  template:
+    metadata:
+      # .path.segments = [workloads, <env>, <app>]
+      name: '{{ index .path.segments 2 }}-{{ index .path.segments 1 }}-{{ trimSuffix ".yaml" .path.filename }}'
+      labels:
+        tier: workload
+        app: "{{ index .path.segments 2 }}"
+        env: "{{ index .path.segments 1 }}"
+    spec:
+      project: "{{ index .path.segments 2 }}"
+      sources:
+        # 1. The chart, at the git tag the service file asks for (per-service rollout).
+        - repoURL: https://github.com/ailves2009/poc-aws-eks-karpenter.git
+          targetRevision: "{{ .chart.revision }}"
+          path: "{{ .chart.path }}"
+          helm:
+            releaseName: '{{ trimSuffix ".yaml" .path.filename }}'
+            # One render = one service: the library refuses to render without it.
+            parameters:
+              - name: activeApp
+                value: '{{ trimSuffix ".yaml" .path.filename }}'
+            # Every layer is an explicit values file, so the chart's values.schema.json
+            # validates all of them (no in-template file discovery).
+            valueFiles:
+              - 'values/{{ trimSuffix ".yaml" .path.filename }}.yaml'
+              - "$values/{{ .path.path }}/_env.yaml"
+              - "$values/{{ .path.path }}/{{ .path.filename }}"
+        # 2. The values repository, referenced as $values.
+        - repoURL: https://github.com/ailves2009/poc-eks-gitops-values.git
+          targetRevision: master
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ index .path.segments 2 }}-{{ index .path.segments 1 }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        managedNamespaceMetadata:
+          labels:
+            app: "{{ index .path.segments 2 }}"
+            env: "{{ index .path.segments 1 }}"
